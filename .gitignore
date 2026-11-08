@@ -1,0 +1,43 @@
+# Secrets and local OAuth state
+credentials.json
+google-token.json
+google-token.json.tmp
+outlook-connection.json*
+lms-connection.json
+lms-connection.json.tmp
+camu-session.json
+camu-session.json.tmp
+*.json.bak
+
+# Local data and private exports
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.ics
+daymark-manual-items*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+coverage/
+.pytest_cache/
+.coverage
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.vscode/
+*.log
+.DS_Store
+Thumbs.db
+deliverables/
