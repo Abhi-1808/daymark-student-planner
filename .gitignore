@@ -41,3 +41,9 @@ coverage/
 .DS_Store
 Thumbs.db
 deliverables/
+
+# Daymark instance data
+/data/
+/.envrc
+/playwright-report/
+/test-results/
