@@ -53,6 +53,7 @@ class Record(Input):
     minutes: int = Field(default=60, ge=15, le=480)
     target: int = Field(default=75, ge=1, le=100)
     busy: bool = True
+    reminder: int | None = Field(default=None, ge=0, le=1440)
     parent: str = Field(default="", max_length=80)
 
     @model_validator(mode="after")
@@ -69,7 +70,7 @@ class Record(Input):
             raise ValueError("Attendance needs a date and subject code")
         if self.repeat_until:
             as_day(self.repeat_until)
-            if self.repeat_until < (self.start or self.due or "")[:10]:
+            if self.repeat_until < (self.due or (self.start if self.start and len(self.start) == 10 else "")):
                 raise ValueError("Repeat end must follow the first day")
         if self.repeat != "none" and self.kind == "task" and not self.due:
             raise ValueError("Repeating tasks need a due date")

@@ -5,13 +5,14 @@ import re
 import threading
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote, urlencode, urlsplit
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from babel.core import get_global
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 
 from .models import Record
-from .transfer import bounds, identity, parse_ics, text_value
+from .transfer import bounds, identity, parse_csv, parse_ics, text_value
 
 
 class ProviderError(Exception):
@@ -25,7 +26,7 @@ class Providers:
         self.config = config
         self.store = store
         self.cipher = Fernet(config.key) if config.key else None
-        self.locks = {name: threading.Lock() for name in ("google", "microsoft", "bennett")}
+        self.locks = {name: threading.Lock() for name in ("google", "microsoft", "bennett", "camu")}
         self.transport = transport
         self.bennett_url = config.bennett_url
         if self.bennett_url:
@@ -38,6 +39,8 @@ class Providers:
     def available(self, provider):
         if provider == "bennett":
             return bool(self.bennett_url)
+        if provider == "camu":
+            return bool(self.config.camu_file)
         args = self.oauth_config(provider)
         return bool(self.cipher and args["client_id"] and args["client_secret"])
 
@@ -50,11 +53,12 @@ class Providers:
                 "client_secret": self.config.google_secret,
                 "scope": "https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/tasks.readonly",
             }
+        mail_scope = " https://graph.microsoft.com/Mail.ReadBasic" if self.config.microsoft_mail else ""
         authority = f"https://login.microsoftonline.com/{self.config.microsoft_tenant}/oauth2/v2.0"
         return {
             "authorize": f"{authority}/authorize", "token": f"{authority}/token",
             "client_id": self.config.microsoft_id, "client_secret": self.config.microsoft_secret,
-            "scope": "offline_access https://graph.microsoft.com/Calendars.ReadBasic",
+            "scope": f"offline_access https://graph.microsoft.com/Calendars.ReadBasic{mail_scope}",
         }
 
     def callback(self, provider):
@@ -99,7 +103,39 @@ class Providers:
         self.store.connect(provider, self.seal(token))
 
     def client(self, **kwargs):
-        return httpx.Client(follow_redirects=False, timeout=18, transport=self.transport, **kwargs)
+        return httpx.Client(follow_redirects=False, timeout=18, trust_env=False, transport=self.transport, **kwargs)
+
+    def access_token(self, provider, encrypted):
+        token = json.loads(self.cipher.decrypt(encrypted.encode()))
+        if token["expires_at"] < datetime.now(timezone.utc).timestamp() + 120:
+            refresh = token["refresh_token"]
+            token = self.token(provider, grant_type="refresh_token", refresh_token=refresh)
+            token.setdefault("refresh_token", refresh)
+            encrypted = self.seal(token)
+        return token["access_token"], encrypted
+
+    def microsoft_mail(self):
+        provider = "microsoft"
+        if not self.config.microsoft_mail or not self.available(provider):
+            raise ProviderError("Enable Outlook mail headers in .env and reconnect Outlook first.")
+        with self.locks[provider]:
+            connection = self.store.connection(provider)
+            if not connection:
+                raise ProviderError("Connect Outlook first.")
+            encrypted = connection["token"]
+            access, updated = self.access_token(provider, encrypted)
+            if updated != encrypted:
+                self.store.finish_sync(provider, encrypted, updated, {}, None, connection["error"])
+            with self.client(headers={"Authorization": f"Bearer {access}"}) as client:
+                response = client.get("https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages", params={
+                    "$select": "id,subject,from,receivedDateTime", "$top": 25, "$orderby": "receivedDateTime desc",
+                })
+                response.raise_for_status()
+                return [{
+                    "id": item["id"], "subject": text_value(item.get("subject"), 200) or "Untitled message",
+                    "sender": text_value(((item.get("from") or {}).get("emailAddress") or {}).get("address"), 200),
+                    "received": item.get("receivedDateTime"),
+                } for item in response.json().get("value", [])]
 
     def sync(self, provider):
         with self.locks[provider]:
@@ -108,23 +144,25 @@ class Providers:
                 return
             encrypted = connection["token"]
             updated_token = encrypted
-            zone = ZoneInfo(self.store.snapshot()["preferences"]["timezone"])
+            zone = ZoneInfo(self.store.read_preferences()["timezone"])
             safe_error = None
             try:
                 if provider == "bennett":
                     feeds = {"bennett-feed": self.bennett_events(zone)}
+                elif provider == "camu":
+                    with self.config.camu_file.open("rb") as timetable:
+                        content = timetable.read(2_000_001)
+                    if len(content) > 2_000_000:
+                        raise ProviderError("The MyCamu file exceeds 2 MB.")
+                    parser = parse_csv if self.config.camu_file.suffix.lower() == ".csv" else parse_ics
+                    feeds = {"camu-feed": parser(content, zone, *(("camu",) if parser is parse_ics else ()))}
                 else:
-                    token = json.loads(self.cipher.decrypt(encrypted.encode()))
-                    if token["expires_at"] < datetime.now(timezone.utc).timestamp() + 120:
-                        refresh = token["refresh_token"]
-                        token = self.token(provider, grant_type="refresh_token", refresh_token=refresh)
-                        token.setdefault("refresh_token", refresh)
-                        updated_token = self.seal(token)
-                    with self.client(headers={"Authorization": f"Bearer {token['access_token']}"}) as client:
+                    access, updated_token = self.access_token(provider, encrypted)
+                    with self.client(headers={"Authorization": f"Bearer {access}"}) as client:
                         feeds = self.google(client, zone) if provider == "google" else self.microsoft(client, zone)
             except ProviderError as error:
                 safe_error = str(error)
-            except (httpx.HTTPError, KeyError, ValueError, InvalidToken, TypeError, AttributeError, OverflowError):
+            except (httpx.HTTPError, KeyError, ValueError, InvalidToken, TypeError, AttributeError, OverflowError, OSError):
                 safe_error = "Sync failed. Your previous data is still available. Check the connection and try again."
             now = datetime.now(timezone.utc).isoformat()
             self.store.finish_sync(provider, encrypted, updated_token, feeds if not safe_error else {},
@@ -205,12 +243,13 @@ class Providers:
             calendar_id = quote(calendar["id"], safe="")
             events = self.pages(client, f"{base}/me/calendars/{calendar_id}/calendarView", {
                 "startDateTime": start.isoformat(), "endDateTime": end.isoformat(), "$top": 200,
-                "$select": "id,subject,start,end,location,isAllDay,isCancelled,showAs",
+                "$select": "id,subject,start,end,location,isAllDay,isCancelled,showAs,originalStartTimeZone,originalEndTimeZone",
             }, item_key="value")
             for event in events:
                 if event.get("isCancelled"):
                     continue
-                first, last = (graph_time(event[key], event.get("isAllDay")) for key in ("start", "end"))
+                first = graph_time(event["start"], event.get("isAllDay"), event.get("originalStartTimeZone"), zone)
+                last = graph_time(event["end"], event.get("isAllDay"), event.get("originalEndTimeZone"), zone)
                 outlook[identity(calendar_id, event["id"])] = event_record(
                     event.get("subject"), first, last, (event.get("location") or {}).get("displayName"),
                     event.get("showAs") != "free",
@@ -218,17 +257,24 @@ class Providers:
         return {"outlook": outlook}
 
 
-def graph_time(value, all_day):
+def graph_time(value, all_day, original_zone, fallback_zone):
     instant = datetime.fromisoformat(value["dateTime"])
     if not instant.tzinfo:
         instant = instant.replace(tzinfo=timezone.utc)
     if all_day:
-        return (instant + timedelta(hours=12)).date().isoformat()
+        try:
+            zone = ZoneInfo(get_global("windows_zone_mapping").get(original_zone, original_zone))
+        except (ZoneInfoNotFoundError, ValueError, TypeError):
+            zone = fallback_zone
+        return instant.astimezone(zone).date().isoformat()
     return instant.isoformat()
 
 
 def event_record(title, first, last, location, busy):
     if first == last:
-        last = (datetime.fromisoformat(first) + timedelta(minutes=1)).isoformat()
+        offset = timedelta(minutes=1) if len(first) > 10 else timedelta(days=1)
+        last = (datetime.fromisoformat(first) + offset).isoformat()
+        if len(first) == 10:
+            last = last[:10]
     return Record(kind="event", title=text_value(title, 200) or "Untitled event",
                   start=first, end=last, location=text_value(location, 200), busy=busy, color="blue")

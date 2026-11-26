@@ -6,3 +6,5 @@ python-dotenv>=1,<2
 icalendar>=6,<8
 recurring-ical-events>=3,<4
 tzdata>=2025.1
+
+Babel>=2.16,<3

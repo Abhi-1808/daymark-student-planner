@@ -6,13 +6,17 @@ from collections import deque
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
+
+import httpx
+from cryptography.fernet import InvalidToken
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .config import ROOT, Settings
@@ -22,19 +26,21 @@ from .providers import ProviderError, Providers
 from .store import Store, digest
 from .transfer import parse_csv, parse_ics, write_csv
 
-Provider = Literal["google", "microsoft", "bennett"]
+Provider = Literal["google", "microsoft", "bennett", "camu"]
 CampusSource = Literal["bennett-lms", "camu", "csv", "ics", "demo"]
 COOKIE = "daymark_session"
 DIST = ROOT / "frontend" / "dist"
 MAX_UPLOAD = 2_000_000
 
 
-class Login(Input):
+class Login(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     password: str = Field(min_length=1, max_length=1024)
 
 
 class StudyPlan(Input):
     revision: str = Field(min_length=64, max_length=64)
+    created: int = Field(gt=0)
     blocks: list[Record] = Field(min_length=1, max_length=150)
 
 
@@ -48,7 +54,6 @@ def create_app(config=None, transport=None):
     cfg = config or Settings()
     store = Store(cfg.db)
     providers = Providers(cfg, store, transport)
-    from urllib.parse import urlsplit
     hostname = urlsplit(cfg.origin).hostname
     attempts = deque()
     auth_lock = threading.Lock()
@@ -56,8 +61,9 @@ def create_app(config=None, transport=None):
     @asynccontextmanager
     async def lifespan(_app):
         store.init()
-        if providers.available("bennett") and not store.connection("bennett"):
-            store.connect("bennett", digest(cfg.bennett_url))
+        for name, locator in (("bennett", cfg.bennett_url), ("camu", cfg.camu_file)):
+            if locator and not store.connection(name):
+                store.connect(name, digest(str(locator)))
 
         async def periodic():
             while True:
@@ -101,18 +107,21 @@ def create_app(config=None, transport=None):
         fields = ".".join(str(part) for part in issue["loc"][1:])
         return JSONResponse({"detail": f"{fields + ': ' if fields else ''}{issue['msg']}"}, status_code=422)
 
+    def session_key(token):
+        return digest(cfg.password + "\0" + token)
+
     def issue(response):
         token = secrets.token_urlsafe(32)
-        store.issue_session(token)
+        store.issue_session(session_key(token))
         response.set_cookie(COOKIE, token, max_age=604800, httponly=True, secure=cfg.secure, samesite="lax")
         return token
 
     def require(request: Request, response: Response):
         token = request.cookies.get(COOKIE, "")
-        if token and store.valid_session(token):
-            return token
+        if token and store.valid_session(session_key(token)):
+            return session_key(token)
         if not cfg.password:
-            return issue(response)
+            return session_key(issue(response))
         raise HTTPException(401, "Sign in to Daymark")
 
     secure = [Depends(require)]
@@ -134,7 +143,7 @@ def create_app(config=None, transport=None):
 
     @app.post("/api/logout", dependencies=secure)
     def logout(request: Request, response: Response):
-        store.revoke_session(request.cookies.get(COOKIE, ""))
+        store.revoke_session(session_key(request.cookies.get(COOKIE, "")))
         response.delete_cookie(COOKIE)
         return {"ok": True}
 
@@ -146,7 +155,7 @@ def create_app(config=None, transport=None):
 
     @app.get("/api/workspace", dependencies=secure)
     def workspace():
-        return {**store.snapshot(), "connections": status(), "protected": bool(cfg.password)}
+        return {**store.snapshot(), "connections": status(), "protected": bool(cfg.password), "outlook_mail": cfg.microsoft_mail}
 
     @app.post("/api/records", status_code=201, dependencies=secure)
     def create(body: Record):
@@ -170,11 +179,17 @@ def create_app(config=None, transport=None):
 
     @app.post("/api/plan", dependencies=secure)
     def plan(body: StudyPlan):
-        for block in body.blocks:
+        if not 0 <= time.time() - body.created / 1000 <= 305:
+            raise HTTPException(409, "The preview expired. Generate a fresh plan.")
+        previous = ""
+        for block in sorted(body.blocks, key=lambda item: item.start or ""):
             if block.kind != "event" or block.category != "study" or block.repeat != "none":
                 raise HTTPException(422, "A plan can only add one-time study blocks")
             if len(block.start) == 10 or datetime.fromisoformat(block.start) < datetime.now(timezone.utc):
                 raise HTTPException(409, "A proposed block has already started. Generate a fresh preview.")
+            if block.start < previous:
+                raise HTTPException(422, "Study blocks must not overlap")
+            previous = block.end
         if not store.add_plan(body.revision, body.blocks):
             raise HTTPException(409, "Your workspace changed. Generate a fresh preview.")
         return {"count": len(body.blocks)}
@@ -199,7 +214,7 @@ def create_app(config=None, transport=None):
             data.extend(chunk)
             if len(data) > MAX_UPLOAD:
                 raise HTTPException(413, "Choose a file smaller than 2 MB")
-        zone = ZoneInfo((await asyncio.to_thread(store.snapshot))["preferences"]["timezone"])
+        zone = ZoneInfo((await asyncio.to_thread(store.read_preferences))["timezone"])
         try:
             entries = await asyncio.to_thread(parse_csv if format == "csv" else parse_ics, bytes(data), zone,
                                                *((source,) if format == "ics" else ()))
@@ -216,7 +231,7 @@ def create_app(config=None, transport=None):
 
     @app.post("/api/demo", dependencies=secure)
     def demo():
-        entries = demo_records(store.snapshot()["preferences"]["timezone"])
+        entries = demo_records(store.read_preferences()["timezone"])
         store.import_records("demo", entries)
         return {"count": len(entries)}
 
@@ -229,8 +244,9 @@ def create_app(config=None, transport=None):
     def connect(provider: Provider, session: str = Depends(require)):
         if not providers.available(provider):
             raise HTTPException(503, "Configure this provider in your .env file first")
-        if provider == "bennett":
-            store.connect(provider, digest(cfg.bennett_url))
+        if provider in ("bennett", "camu"):
+            locator = cfg.bennett_url if provider == "bennett" else cfg.camu_file
+            store.connect(provider, digest(str(locator)))
             return {"url": None}
         state, verifier = secrets.token_urlsafe(32), secrets.token_urlsafe(64)
         store.oauth_state(state, provider, session, verifier)
@@ -239,7 +255,7 @@ def create_app(config=None, transport=None):
     @app.get("/api/connections/{provider}/callback")
     def callback(provider: Provider, background: BackgroundTasks, state: str = "", code: str = "",
                  error: str = "", session: str = Depends(require)):
-        if provider == "bennett" or not providers.available(provider) or len(state) > 100:
+        if provider in ("bennett", "camu") or not providers.available(provider) or len(state) > 100:
             raise HTTPException(400, "Invalid provider callback")
         stored = store.consume_state(state, provider, session)
         if stored is None:
@@ -259,6 +275,15 @@ def create_app(config=None, transport=None):
             raise HTTPException(409, "Connect the source first")
         providers.sync(provider)
         return status()[provider]
+
+    @app.get("/api/outlook/mail", dependencies=secure)
+    def outlook_mail():
+        try:
+            return providers.microsoft_mail()
+        except ProviderError as error:
+            raise HTTPException(409, str(error)) from None
+        except (httpx.HTTPError, KeyError, ValueError, InvalidToken):
+            raise HTTPException(502, "Could not read Outlook headers. Check consent and reconnect.") from None
 
     @app.delete("/api/connections/{provider}", dependencies=secure)
     def disconnect(provider: Provider):

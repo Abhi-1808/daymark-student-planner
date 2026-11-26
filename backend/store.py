@@ -93,7 +93,8 @@ class Store:
             conn.execute("BEGIN IMMEDIATE")
             snapshot = self.read_snapshot(conn)
             ids = {record["id"]: record["source"] for record in snapshot["records"]}
-            if snapshot["revision"] != revision or {ids.get(record_id), ids.get(mate)} != {"camu", "google-calendar"}:
+            if (snapshot["revision"] != revision or ids.get(record_id) != "google-calendar"
+                    or ids.get(mate) not in ("camu", "camu-feed")):
                 return False
             conn.execute("INSERT OR REPLACE INTO dismissed VALUES (?, ?, ?)", (record_id, mate, expected))
         return True
@@ -122,6 +123,11 @@ class Store:
     def delete(self, record_id):
         with self.tx() as conn:
             return conn.execute("DELETE FROM records WHERE id=? AND source='manual'", (record_id,)).rowcount == 1
+
+    def read_preferences(self):
+        with self.tx() as conn:
+            saved = conn.execute("SELECT payload FROM preferences WHERE id=1").fetchone()
+        return json.loads(saved["payload"]) if saved else Preferences().model_dump()
 
     def preferences(self, preferences):
         with self.tx() as conn:
@@ -216,4 +222,4 @@ def digest(value):
 
 
 def provider_sources(provider):
-    return {"google": ("google-calendar", "google-tasks"), "microsoft": ("outlook",), "bennett": ("bennett-feed",)}[provider]
+    return {"google": ("google-calendar", "google-tasks"), "microsoft": ("outlook",), "bennett": ("bennett-feed",), "camu": ("camu-feed",)}[provider]
