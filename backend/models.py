@@ -53,6 +53,7 @@ class Record(Input):
     minutes: int = Field(default=60, ge=15, le=480)
     target: int = Field(default=75, ge=1, le=100)
     busy: bool = True
+    parent: str = Field(default="", max_length=80)
 
     @model_validator(mode="after")
     def dates_match(self):

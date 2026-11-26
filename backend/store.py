@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from .models import Preferences, Record
 
+RECORD_DEFAULTS = Record(kind="task", title="Item").model_dump()
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS records (
   id TEXT PRIMARY KEY, source TEXT NOT NULL, external_id TEXT,
@@ -102,7 +104,7 @@ class Store:
 
     @staticmethod
     def unpack(row):
-        return {"id": row["id"], "source": row["source"], **json.loads(row["payload"])}
+        return {**RECORD_DEFAULTS, "id": row["id"], "source": row["source"], **json.loads(row["payload"])}
 
     def save(self, record: Record, record_id=None):
         with self.tx() as conn:
