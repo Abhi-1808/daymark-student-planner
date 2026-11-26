@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CalendarDays, CloudDownload, Database, Download, LogOut, Mail, Plug, RefreshCw, Upload } from 'lucide-react'
 import { api } from './api.js'
-import { applyTheme, remember, setting } from './device.js'
+import { remember, setting } from './device.js'
 import { dateLabel, dayOf, sources, timeLabel } from './planner.js'
 import { Empty, ErrorText, Field, Modal, SectionTitle, Tag } from './ui.jsx'
 
@@ -12,8 +12,7 @@ const providerDetails = {
   camu: ['MyCamu sync file', 'Follow a timetable file on the device running Daymark.'],
 }
 
-export function Settings({ workspace, request, create, canEdit, install, logout, refresh, notify }) {
-  const [theme, setTheme] = useState(() => setting('daymark-theme', 'system'))
+export function Settings({ workspace, request, create, canEdit, install, logout, refresh, notify, theme, setTheme }) {
   const [alerts, setAlerts] = useState(() => typeof Notification === 'function' &&
     Notification.permission === 'granted' && setting('daymark-device-alerts', 'off') === 'on')
   const [mail, setMail] = useState(null)
@@ -93,10 +92,7 @@ export function Settings({ workspace, request, create, canEdit, install, logout,
     <section className="panel inset space-top">
       <SectionTitle title="Appearance and alerts" />
       <div className="form-grid device-settings">
-        <Field label="Color mode"><select value={theme} onChange={event => {
-          const value = event.target.value
-          setTheme(value); applyTheme(value); remember('daymark-theme', value)
-        }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
+        <Field label="Color mode"><select value={theme} onChange={event => setTheme(event.target.value)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
         <div className="field"><span>Device reminders</span><button type="button" className="button secondary" aria-pressed={alerts}
           disabled={typeof Notification !== 'function'} onClick={() => run('alerts', async () => {
             const enabled = !alerts

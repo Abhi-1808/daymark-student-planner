@@ -6,6 +6,10 @@ export function setting(key, fallback) {
 export function remember(key, value) {
   try { localStorage.setItem(key, value) } catch { /* optional device preferences */ }
 }
+export function colorMode() {
+  const theme = setting('daymark-theme', 'system')
+  return theme === 'light' || theme === 'dark' ? theme : 'system'
+}
 export function applyTheme(theme) {
   document.documentElement.dataset.theme = ['dark', 'light'].includes(theme) ? theme : 'system'
 }

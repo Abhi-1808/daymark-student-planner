@@ -1,9 +1,11 @@
 const DAY = 86400000
 const formatterCache = new Map()
+const dateFormatters = new Map()
+const timeFormatters = new Map()
 const levels = { high: 0, normal: 1, low: 2 }
 
 export const categories = { class: 'Class', exam: 'Exam', study: 'Study block', personal: 'Personal', holiday: 'Holiday', assignment: 'Assignment' }
-export const colors = { teal: 'Teal', blue: 'Blue', violet: 'Violet', amber: 'Amber', rose: 'Rose' }
+export const colors = { teal: 'Cobalt', blue: 'Blue', violet: 'Violet', amber: 'Amber', rose: 'Rose' }
 export const sources = {
   manual: 'Daymark', 'google-calendar': 'Google Calendar', 'google-tasks': 'Google Tasks',
   outlook: 'Outlook', 'bennett-lms': 'Bennett LMS file', 'bennett-feed': 'Bennett LMS feed', camu: 'MyCamu file', 'camu-feed': 'MyCamu sync file',
@@ -50,10 +52,15 @@ export function monthShift(day, delta) {
   return new Date(Date.UTC(year, month - 1 + delta, Math.min(last, target))).toISOString().slice(0, 10)
 }
 export function dateLabel(day, options = { month: 'short', day: 'numeric' }) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...options }).format(new Date(day + 'T12:00:00Z'))
+  const key = JSON.stringify(options)
+  if (!dateFormatters.has(key)) dateFormatters.set(key, new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', ...options }))
+  return dateFormatters.get(key).format(new Date(day + 'T12:00:00Z'))
 }
 export function timeLabel(value, zone) {
-  return new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value))
+  if (!timeFormatters.has(zone)) {
+    timeFormatters.set(zone, new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }))
+  }
+  return timeFormatters.get(zone).format(new Date(value))
 }
 export function instant(value, zone) {
   const target = Date.parse(value + 'Z')
@@ -112,6 +119,18 @@ export function taskOrder(tasks) {
 }
 export function includesDay(item, day) {
   return item.date <= day && item.lastDay >= day
+}
+export function indexByDay(items, first, last) {
+  const days = new Map()
+  for (const item of items) {
+    const start = item.date > first ? item.date : first
+    const end = item.lastDay < last ? item.lastDay : last
+    for (let date = start; date <= end; date = addDays(date, 1)) {
+      if (!days.has(date)) days.set(date, [])
+      days.get(date).push(item)
+    }
+  }
+  return days
 }
 export function inputRecord(item) {
   return Object.fromEntries(Object.keys(defaults).map(key => [key, item[key] ?? defaults[key]]))

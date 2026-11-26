@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, SlidersHorizontal } from 'lucide-react'
-import { addDays, categories, dateLabel, expand, includesDay, instant, monthShift, sources, timeLabel, wall, weekStart } from './planner.js'
+import { addDays, categories, dateLabel, expand, indexByDay, instant, monthShift, sources, timeLabel, wall, weekStart } from './planner.js'
 import { Empty, IconButton, Tag } from './ui.jsx'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -12,20 +12,17 @@ function calendarTitle(day, mode) {
   return `${dateLabel(weekStart(day))} – ${dateLabel(addDays(weekStart(day), 6))}, ${day.slice(0, 4)}`
 }
 
-function itemsOn(items, day) {
-  return items.filter(item => includesDay(item, day))
-}
 function stateClass(date, today, active) {
   return date === today ? 'is-today' : date === active ? 'is-selected' : ''
 }
 
-function Month({ focus, today, items, open, pick, zone }) {
+function Month({ focus, today, byDay, open, pick, zone }) {
   const first = weekStart(focus.slice(0, 7) + '-01')
   return <div className="month-scroll"><div className="month-grid">
     {DAYS.map(day => <div key={day} className="weekday">{day}</div>)}
     {Array.from({ length: 42 }, (_, i) => {
       const day = addDays(first, i)
-      const events = itemsOn(items, day)
+      const events = byDay.get(day) || []
       return <div key={day} className={`month-cell ${stateClass(day, today, focus)} ${day.slice(0, 7) !== focus.slice(0, 7) ? 'outside' : ''}`}>
         <button className="date-cell" aria-label={`Open ${dateLabel(day, { weekday: 'long', month: 'long', day: 'numeric' })}`} onClick={() => pick(day)}>
           {Number(day.slice(-2))}
@@ -67,16 +64,32 @@ function lanes(events) {
   return [...positioned, ...group.map(item => ({ ...item, total: max }))]
 }
 
-function Timeline({ mode, focus, today, items, open, pick, prefs, now, create, canEdit }) {
+function Timeline({ mode, focus, today, byDay, open, pick, prefs, now, create, canEdit }) {
   const zone = prefs.timezone
-  const days = mode === 'day' ? [focus] : Array.from({ length: 7 }, (_, index) => addDays(weekStart(focus), index))
-  const positions = days.map(day => itemsOn(items, day).filter(item => item.kind === 'event' && !item.allDay)
-    .map(item => position(item, day, zone)).sort((a, b) => a.start - b.start || a.end - b.end))
-  const all = positions.flat()
-  const first = Math.min(prefs.day_start, ...all.map(item => Math.floor(item.start / 60)))
-  const last = Math.max(prefs.day_end, ...all.map(item => Math.ceil(item.end / 60)))
+  const { days, columns, first, last, labels } = useMemo(() => {
+    const days = mode === 'day' ? [focus] : Array.from({ length: 7 }, (_, index) => addDays(weekStart(focus), index))
+    let first = prefs.day_start
+    let last = prefs.day_end
+    const columns = days.map(day => {
+      const items = byDay.get(day) || []
+      const allDay = []
+      const timed = []
+      for (const item of items) {
+        if (item.allDay || item.kind === 'task') allDay.push(item)
+        else {
+          const event = position(item, day, zone)
+          first = Math.min(first, Math.floor(event.start / 60))
+          last = Math.max(last, Math.ceil(event.end / 60))
+          timed.push(event)
+        }
+      }
+      timed.sort((a, b) => a.start - b.start || a.end - b.end)
+      return { allDay, timed: lanes(timed) }
+    })
+    const labels = Array.from({ length: last - first }, (_, index) => String(first + index).padStart(2, '0') + ':00')
+    return { days, columns, first, last, labels }
+  }, [mode, focus, byDay, prefs.day_start, prefs.day_end, zone])
   const total = (last - first) * 60
-  const labels = Array.from({ length: last - first }, (_, index) => String(first + index).padStart(2, '0') + ':00')
   const nowWall = wall(now, zone)
   const nowMinutes = Number(nowWall.slice(11, 13)) * 60 + Number(nowWall.slice(14, 16))
   return <div className="timeline-overflow"><div className={`time-grid ${mode}`} style={{ '--days': days.length, '--height': `${(last - first) * 58}px`, '--hour': '58px' }}>
@@ -85,8 +98,8 @@ function Timeline({ mode, focus, today, items, open, pick, prefs, now, create, c
       <span>{dateLabel(day, { weekday: 'short' })}</span><strong>{Number(day.slice(-2))}</strong>
     </button>)}
     <div className="all-day-label">All day</div>
-    {days.map(day => <div className="timeline-all-day" key={day}>
-      {itemsOn(items, day).filter(item => item.allDay || item.kind === 'task').map(item =>
+    {days.map((day, index) => <div className="timeline-all-day" key={day}>
+      {columns[index].allDay.map(item =>
         <button key={item.key} className={`month-item ${item.color} ${item.done ? 'crossed' : ''}`} onClick={() => open(item)}><i /><strong>{item.title}</strong></button>)}
     </div>)}
     <div className="timeline-labels">{labels.map(label => <span key={label}>{label}</span>)}</div>
@@ -96,7 +109,7 @@ function Timeline({ mode, focus, today, items, open, pick, prefs, now, create, c
           const start = instant(day + 'T' + label, zone)
           create('event', { start: new Date(start).toISOString(), end: new Date(start + 3600000).toISOString() })
         }} />)}
-      {lanes(positions[index]).map(({ item, start, end, lane, total: count }) => <button key={item.key} onClick={() => open(item)}
+      {columns[index].timed.map(({ item, start, end, lane, total: count }) => <button key={item.key} onClick={() => open(item)}
         className={`timed-item ${item.color}`}
         style={{ top: `${(start - first * 60) / total * 100}%`, height: `max(24px, ${(end - start) / total * 100}%)`,
           left: `calc(${lane / count * 100}% + 4px)`, width: `calc(${100 / count}% - 8px)` }}>
@@ -114,6 +127,7 @@ export function CalendarView({ day, setDay, mode, setMode, records, prefs, today
   const availableSources = useMemo(() => [...new Set(records.map(item => item.source))], [records])
   const items = useMemo(() => expand(records.filter(item => !hidden.includes(item.source) &&
     !hidden.includes(item.kind === 'task' ? 'task' : item.category)), first, last, prefs.timezone), [records, first, last, prefs.timezone, hidden])
+  const byDay = useMemo(() => indexByDay(items, first, last), [items, first, last])
   function move(delta) { setDay(mode === 'month' ? monthShift(day, delta) : addDays(day, delta * (mode === 'week' ? 7 : 1))) }
   function pick(target) { setDay(target); setMode('day') }
   function flip(id) { setHidden(current => current.includes(id) ? current.filter(value => value !== id) : [...current, id]) }
@@ -132,8 +146,8 @@ export function CalendarView({ day, setDay, mode, setMode, records, prefs, today
       {filters && <div className="calendar-filters"><div><strong>Types</strong><div className="filter-options">{Object.entries({ ...categories, task: 'Task' }).map(([id, label]) =>
         <label className="check-label" key={id}><input type="checkbox" checked={!hidden.includes(id)} onChange={() => flip(id)} />{label}</label>)}</div></div>
         {!!availableSources.length && <div><strong>Sources</strong><div className="filter-options">{availableSources.map(id => <label className="check-label" key={id}><input type="checkbox" checked={!hidden.includes(id)} onChange={() => flip(id)} />{sources[id]}</label>)}</div></div>}</div>}
-      {mode === 'month' ? <Month focus={day} today={today} items={items} open={open} pick={pick} zone={prefs.timezone} />
-        : <Timeline mode={mode} focus={day} today={today} items={items} open={open} pick={pick} prefs={prefs} now={now} create={create} canEdit={canEdit} />}
+      {mode === 'month' ? <Month focus={day} today={today} byDay={byDay} open={open} pick={pick} zone={prefs.timezone} />
+        : <Timeline mode={mode} focus={day} today={today} byDay={byDay} open={open} pick={pick} prefs={prefs} now={now} create={create} canEdit={canEdit} />}
     </section>
     {mode === 'day' && <section className="panel day-list">
       <h2>Day agenda</h2>

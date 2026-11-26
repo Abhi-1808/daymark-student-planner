@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { addDays, attendanceSummary, buildPlan, conflicts, dayOf, duplicateState, expand, freeSlots,
-  includesDay, instant, quickAdd, slotMinutes, timeLabel } from '../frontend/src/planner.js'
+  includesDay, indexByDay, instant, quickAdd, slotMinutes, timeLabel } from '../frontend/src/planner.js'
 import { defaults } from '../frontend/src/planner.js'
 
 const zone = 'Asia/Kolkata'
@@ -104,4 +104,13 @@ test('attendance excludes excused outcomes', () => {
     kind: 'attendance', course: 'DBMS', attendance,
   }))
   assert.equal(attendanceSummary(rows, { course: 'dbms' }).percent, 66.7)
+})
+
+
+test('calendar day lookup indexes overlapping items within the visible range', () => {
+  const across = { date: '2026-11-24', lastDay: '2026-11-27' }
+  const task = { date: '2026-11-27', lastDay: '2026-11-27' }
+  const outside = { date: '2026-11-20', lastDay: '2026-11-22' }
+  const days = indexByDay([across, task, outside], '2026-11-26', '2026-11-28')
+  assert.deepEqual([...days.entries()], [['2026-11-26', [across]], ['2026-11-27', [across, task]]])
 })

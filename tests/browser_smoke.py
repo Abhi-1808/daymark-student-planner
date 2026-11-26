@@ -41,9 +41,11 @@ def exercise(browser, url):
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(url)
-    expect(page.get_by_role("heading", name="Your day, at a glance.")).to_be_visible()
+    expect(page.get_by_role("heading", name="Today", exact=True)).to_be_visible()
     page.get_by_role("button", name="Load sample data").click()
     expect(page.get_by_role("heading", name="Coming up")).to_be_visible()
+    expect(page.locator(".schedule-panel")).to_have_css("backdrop-filter", "none")
+    expect(page.locator(".event-row").first).to_have_css("backdrop-filter", "none")
     if screenshot := os.getenv("DAYMARK_SMOKE_SCREENSHOT"):
         page.screenshot(path=screenshot)
 
@@ -104,9 +106,10 @@ def exercise(browser, url):
     expect(page.get_by_text("88.9%", exact=True)).to_be_visible()
 
     page.get_by_role("link", name="Settings", exact=True).click()
-    page.get_by_label("Color mode").select_option("dark")
+    page.get_by_role("button", name="Toggle dark mode").click()
+    expect(page.get_by_label("Color mode")).to_have_value("dark")
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
-    expect(page.locator("html")).to_have_css("background-color", "rgb(21, 33, 31)")
+    expect(page.locator("html")).to_have_css("background-color", "rgb(18, 22, 31)")
     expect(page.get_by_role("heading", name="Settings")).to_have_css("font-family", 'Calibri, Carlito, "Segoe UI", system-ui, sans-serif')
     page.reload()
     expect(page.get_by_label("Color mode")).to_have_value("dark")
@@ -144,17 +147,18 @@ def mobile(browser, url):
                                 device_scale_factor=2, has_touch=True, color_scheme="dark")
     page = phone.new_page()
     page.goto(url)
-    expect(page.locator("html")).to_have_css("color-scheme", "dark")
-    expect(page.get_by_role("heading", name="Your day, at a glance.")).to_be_visible()
-    page.get_by_role("button", name="Open navigation").click()
+    expect(page.locator("html")).to_have_css("background-color", "rgb(18, 22, 31)")
+    expect(page.get_by_role("heading", name="Today", exact=True)).to_be_visible()
+    expect(page.get_by_role("navigation", name="Mobile workspace")).to_be_visible()
+    if screenshot := os.getenv("DAYMARK_SMOKE_SCREENSHOT"):
+        page.screenshot(path=str(Path(screenshot).with_name("daymark-glass-mobile.png")))
     page.get_by_role("link", name="Calendar", exact=True).click()
     page.get_by_role("button", name="week", exact=True).click()
     expect(page.locator(".time-grid.week")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth") == 360
-    page.get_by_role("button", name="Open navigation").click()
     page.get_by_role("link", name="Settings", exact=True).click()
     page.get_by_label("Color mode").select_option("light")
-    expect(page.locator("html")).to_have_css("background-color", "rgb(246, 248, 245)")
+    expect(page.locator("html")).to_have_css("background-color", "rgb(233, 239, 250)")
     assert page.evaluate("document.documentElement.scrollWidth") == 360
     phone.close()
 

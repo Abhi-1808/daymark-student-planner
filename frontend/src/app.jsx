@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight, BookOpen, CalendarDays, CalendarPlus, Check, ChevronDown, CircleHelp, ClipboardList,
-  CloudOff, Command, CopyCheck, Menu, Plus, Search, Settings2, Sunrise, X, Zap,
+  CloudOff, Command, CopyCheck, Moon, Plus, Search, Settings2, Sun, Sunrise, X, Zap,
 } from 'lucide-react'
 import { api, clearCache, readCache, writeCache } from './api.js'
-import { remind } from './device.js'
+import { applyTheme, colorMode, remember, remind } from './device.js'
 import { CalendarView } from './calendar.jsx'
 import { makeDraft, RecordEditor } from './editor.jsx'
 import { addDays, categories, conflicts, dateLabel, dayOf, duplicateState, expand, inputRecord, quickAdd, sources } from './planner.js'
@@ -118,7 +118,7 @@ export function App() {
   const [day, setDay] = useState(null)
   const [mode, setMode] = useState('month')
   const [dialog, setDialog] = useState(null)
-  const [drawer, setDrawer] = useState(false)
+  const [theme, setTheme] = useState(colorMode)
   const [menu, setMenu] = useState(false)
   const [toast, setToast] = useState(null)
   const [filters, setFilters] = useState(cachedFilters)
@@ -198,7 +198,7 @@ export function App() {
       notify({ connected: 'Source connected. The initial sync may take a moment.', declined: 'Connection was canceled.', failed: 'Connection failed. Check the provider settings.' }[connection] || 'Connection updated.', connection === 'connected')
       history.replaceState(null, '', location.pathname + location.hash)
     }
-    const hash = () => { setPage(getPage()); setDrawer(false); setMenu(false) }
+    const hash = () => { setPage(getPage()); setMenu(false) }
     const onInstall = event => { event.preventDefault(); setInstallPrompt(event) }
     const onKey = event => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -240,9 +240,19 @@ export function App() {
     return () => { document.removeEventListener('pointerdown', outside); document.removeEventListener('keydown', escape) }
   }, [menu])
 
+  function changeTheme(value) {
+    applyTheme(value)
+    remember('daymark-theme', value)
+    setTheme(value)
+  }
+  function toggleTheme() {
+    const dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+    changeTheme(dark ? 'light' : 'dark')
+  }
+
   function nav(route, view) {
     if (view) setMode(view)
-    setPage(route); setDrawer(false); setMenu(false)
+    setPage(route); setMenu(false)
     if (location.hash !== '#' + route) location.hash = route
   }
   function open(item) {
@@ -311,41 +321,45 @@ export function App() {
     await refresh()
   }} />
 
-  const selected = pages[page]
   const count = matches.pairs.filter(pair => !pair.hidden).length
   const close = () => setDialog(null)
   const common = { today, now, open, toggle, create, canEdit }
+  const links = Object.entries(pages).map(([key, { label, icon: Icon }]) => (
+    <a className={key === page ? 'active' : ''} href={`#${key}`} key={key}
+      aria-current={page === key ? 'page' : undefined}
+      onClick={event => { event.preventDefault(); nav(key) }}>
+      <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
+    </a>
+  ))
   return <div className="shell">
-    {drawer && <button className="drawer-backdrop" aria-label="Close navigation" onClick={() => setDrawer(false)} />}
-    <aside className={`sidebar ${drawer ? 'open' : ''}`}>
+    <aside className="sidebar">
       <button className="brand-link" onClick={() => nav('today')} aria-label="Daymark home"><Brand /></button>
-      <div className="create-wrap" ref={createMenu}>
-        <button className="create-button" aria-expanded={menu} disabled={!canEdit} onClick={() => setMenu(value => !value)}>
-          <Plus size={18} /> Create <ChevronDown size={15} /></button>
-        {menu && <div className="create-menu">
-          <button onClick={() => create('event')}><CalendarPlus size={16} /> New event</button>
-          <button onClick={() => create('task')}><ClipboardList size={16} /> New task</button>
-          <button onClick={() => { setDialog({ type: 'quick' }); setMenu(false) }}><Zap size={16} /> Quick Add</button>
-        </div>}
-      </div>
-      <nav className="navigation" aria-label="Workspace">
-        {Object.entries(pages).map(([key, { label, icon: Icon }]) => <a className={`${key === page ? 'active' : ''} ${key === 'settings' ? 'last-link' : ''}`}
-          href={`#${key}`} key={key} aria-current={page === key ? 'page' : undefined} onClick={event => { event.preventDefault(); nav(key) }}>
-          <Icon size={19} strokeWidth={1.8} /><span>{label}</span>
-        </a>)}
-      </nav>
+      <nav className="navigation" aria-label="Workspace">{links}</nav>
       <div className="sidebar-foot"><span className="avatar">{workspace.preferences.name.slice(0, 1).toUpperCase()}</span>
-        <div><strong>{workspace.preferences.name}</strong><span>Personal workspace</span></div>
+        <strong>{workspace.preferences.name}</strong>
       </div>
     </aside>
-    <div className="main-shell">
+    <div className="main-shell min-w-0">
       <header className="topbar">
-        <div className="topbar-title"><IconButton className="mobile-nav" label="Open navigation" icon={Menu} onClick={() => setDrawer(true)} />
-          <selected.icon size={17} /><span>{selected.label}</span></div>
-        <div className="topbar-actions">
+        <button className="mobile-brand brand-link" onClick={() => nav('today')} aria-label="Daymark home"><Brand /></button>
+        <div className="topbar-actions flex min-w-0 items-center">
           {count > 0 && <button className="button review-button" onClick={() => setDialog({ type: 'duplicates' })}><CopyCheck size={16} /> <span>Review</span> {count}</button>}
           <button className="search-button" aria-label="Search anything" onClick={() => setDialog({ type: 'search' })}><Search size={17} /><span>Search anything</span><kbd><Command size={11} /> K</kbd></button>
-          <IconButton className="help-button" icon={CircleHelp} label="Workspace help" onClick={() => setDialog({ type: 'help' })} />
+          <div className="theme-toggle">
+            <IconButton label="Toggle dark mode" icon={Moon} onClick={toggleTheme} className="dark-action" />
+            <IconButton label="Toggle dark mode" icon={Sun} onClick={toggleTheme} className="light-action" />
+          </div>
+          <div className="create-wrap" ref={createMenu}>
+            <button className="create-button" aria-label="Create" aria-expanded={menu} disabled={!canEdit} onClick={() => setMenu(value => !value)}>
+              <Plus size={17} /><span>New</span><ChevronDown className="create-chevron" size={14} />
+            </button>
+            {menu && <div className="create-menu">
+              <button onClick={() => create('event')}><CalendarPlus size={16} /> New event</button>
+              <button onClick={() => create('task')}><ClipboardList size={16} /> New task</button>
+              <button onClick={() => { setDialog({ type: 'quick' }); setMenu(false) }}><Zap size={16} /> Quick Add</button>
+            </div>}
+          </div>
+          <IconButton className="help-button desktop-help" icon={CircleHelp} label="Workspace help" onClick={() => setDialog({ type: 'help' })} />
         </div>
       </header>
       <main className="content">
@@ -359,10 +373,11 @@ export function App() {
           const result = await request('/api/plan', { method: 'POST', payload: { revision: preview.revision, created: preview.created, blocks: preview.blocks } })
           notify(`${result.count} study blocks added.`, true)
         }} />}
-        {page === 'settings' && <Settings workspace={workspace} request={request} create={create} canEdit={canEdit} logout={logout} refresh={refresh} notify={notify}
+        {page === 'settings' && <Settings workspace={workspace} request={request} create={create} canEdit={canEdit} logout={logout} refresh={refresh} notify={notify} theme={theme} setTheme={changeTheme}
           install={installPrompt && (async () => { await installPrompt.prompt(); setInstallPrompt(null) })} />}
       </main>
     </div>
+    <nav className="bottom-nav" aria-label="Mobile workspace">{links}</nav>
     {dialog?.type === 'search' && <SearchPanel records={workspace.records} close={close} open={open} />}
     {dialog?.type === 'record' && <RecordEditor key={dialog.record.key || dialog.record.id || dialog.record.kind} record={dialog.record}
       zone={zone} courses={courses} close={close} save={save} remove={remove} skip={skip} canEdit={canEdit} checkWarnings={checkWarnings} />}
