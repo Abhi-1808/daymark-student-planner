@@ -29,6 +29,7 @@ class Settings:
         self.microsoft_id = os.getenv("DAYMARK_MICROSOFT_CLIENT_ID", "")
         self.microsoft_secret = os.getenv("DAYMARK_MICROSOFT_CLIENT_SECRET", "")
         self.microsoft_tenant = os.getenv("DAYMARK_MICROSOFT_TENANT", "common")
+        self.bennett_url = os.getenv("DAYMARK_BENNETT_ICS", "")
         self.sync_seconds = int(os.getenv("DAYMARK_SYNC_SECONDS", "300"))
         if self.sync_seconds < 0 or 0 < self.sync_seconds < 60:
             raise RuntimeError("DAYMARK_SYNC_SECONDS must be 0 or at least 60")

@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS records (
   UNIQUE(source, external_id)
 );
 CREATE TABLE IF NOT EXISTS preferences (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS dismissed (
+  id TEXT PRIMARY KEY, mate TEXT NOT NULL, expected TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS connections (
   provider TEXT PRIMARY KEY, token TEXT NOT NULL, synced TEXT, error TEXT
 );
@@ -54,12 +57,48 @@ class Store:
 
     def snapshot(self):
         with self.tx() as conn:
-            preferences = conn.execute("SELECT payload FROM preferences WHERE id = 1").fetchone()
-            records = conn.execute("SELECT * FROM records ORDER BY modified, id").fetchall()
+            conn.execute("BEGIN")
+            return self.read_snapshot(conn)
+
+    def read_snapshot(self, conn):
+        preferences = conn.execute("SELECT payload FROM preferences WHERE id = 1").fetchone()
+        records = conn.execute("SELECT * FROM records ORDER BY modified, id").fetchall()
+        dismissed = conn.execute("SELECT * FROM dismissed").fetchall()
+        revision = digest(json.dumps([
+            preferences["payload"] if preferences else "",
+            [(row["id"], row["modified"]) for row in records],
+            [tuple(row) for row in dismissed],
+        ]))
         return {
             "preferences": json.loads(preferences["payload"]) if preferences else Preferences().model_dump(),
             "records": [self.unpack(row) for row in records],
+            "dismissed": [dict(row) for row in dismissed],
+            "revision": revision,
         }
+
+    def add_plan(self, revision, blocks):
+        with self.tx() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if self.read_snapshot(conn)["revision"] != revision:
+                return False
+            for block in blocks:
+                conn.execute("INSERT INTO records VALUES (?, 'manual', NULL, ?, ?)",
+                             (uuid4().hex, block.model_dump_json(), time.time_ns()))
+        return True
+
+    def dismiss(self, revision, record_id, mate, expected):
+        with self.tx() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            snapshot = self.read_snapshot(conn)
+            ids = {record["id"]: record["source"] for record in snapshot["records"]}
+            if snapshot["revision"] != revision or {ids.get(record_id), ids.get(mate)} != {"camu", "google-calendar"}:
+                return False
+            conn.execute("INSERT OR REPLACE INTO dismissed VALUES (?, ?, ?)", (record_id, mate, expected))
+        return True
+
+    def restore(self, record_id):
+        with self.tx() as conn:
+            conn.execute("DELETE FROM dismissed WHERE id=?", (record_id,))
 
     @staticmethod
     def unpack(row):
@@ -95,6 +134,10 @@ class Store:
               ON CONFLICT(source, external_id) DO UPDATE SET payload=excluded.payload, modified=excluded.modified
               WHERE records.payload != excluded.payload
             """, (uuid4().hex, source, external_id, record.model_dump_json(), time.time_ns()))
+
+    def clear_import(self, source):
+        with self.tx() as conn:
+            conn.execute("DELETE FROM records WHERE source=?", (source,))
 
     def import_records(self, source, entries):
         with self.tx() as conn:
@@ -171,4 +214,4 @@ def digest(value):
 
 
 def provider_sources(provider):
-    return {"google": ("google-calendar", "google-tasks"), "microsoft": ("outlook",)}[provider]
+    return {"google": ("google-calendar", "google-tasks"), "microsoft": ("outlook",), "bennett": ("bennett-feed",)}[provider]
