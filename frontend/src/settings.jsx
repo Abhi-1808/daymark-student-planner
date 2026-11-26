@@ -1,15 +1,22 @@
 import { useState } from 'react'
-import { CalendarDays, CloudDownload, Database, Download, LogOut, Plug, RefreshCw, Upload } from 'lucide-react'
+import { CalendarDays, CloudDownload, Database, Download, LogOut, Mail, Plug, RefreshCw, Upload } from 'lucide-react'
+import { api } from './api.js'
+import { applyTheme, remember, setting } from './device.js'
 import { dateLabel, dayOf, sources, timeLabel } from './planner.js'
-import { ErrorText, Field, SectionTitle, Tag } from './ui.jsx'
+import { Empty, ErrorText, Field, Modal, SectionTitle, Tag } from './ui.jsx'
 
 const providerDetails = {
   google: ['Google', 'Read Google Calendar events and Google Tasks.'],
   microsoft: ['Microsoft Outlook', 'Read events from Outlook calendars.'],
-  bennett: ['Bennett LMS feed', 'Read assignments and course calendar events from a configured LMS calendar link.'],
+  bennett: ['Bennett LMS feed', 'Read assignments and events from an LMS calendar link.'],
+  camu: ['MyCamu sync file', 'Follow a timetable file on the device running Daymark.'],
 }
 
-export function Settings({ workspace, request, canEdit, install, logout, refresh, notify }) {
+export function Settings({ workspace, request, create, canEdit, install, logout, refresh, notify }) {
+  const [theme, setTheme] = useState(() => setting('daymark-theme', 'system'))
+  const [alerts, setAlerts] = useState(() => typeof Notification === 'function' &&
+    Notification.permission === 'granted' && setting('daymark-device-alerts', 'off') === 'on')
+  const [mail, setMail] = useState(null)
   const [prefs, setPrefs] = useState(workspace.preferences)
   const [source, setSource] = useState('bennett-lms')
   const [file, setFile] = useState(null)
@@ -83,9 +90,28 @@ export function Settings({ workspace, request, canEdit, install, logout, refresh
         </form>
       </section>
     </div>
+    <section className="panel inset space-top">
+      <SectionTitle title="Appearance and alerts" />
+      <div className="form-grid device-settings">
+        <Field label="Color mode"><select value={theme} onChange={event => {
+          const value = event.target.value
+          setTheme(value); applyTheme(value); remember('daymark-theme', value)
+        }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
+        <div className="field"><span>Device reminders</span><button type="button" className="button secondary" aria-pressed={alerts}
+          disabled={typeof Notification !== 'function'} onClick={() => run('alerts', async () => {
+            const enabled = !alerts
+            if (enabled && await Notification.requestPermission() !== 'granted') throw new Error('Allow notifications in your browser settings.')
+            remember('daymark-device-alerts', enabled ? 'on' : 'off')
+            setAlerts(enabled)
+          })}>{alerts ? 'Turn off reminders' : 'Enable reminders'}</button></div>
+      </div>
+      <p className="small muted space-top">Alerts for marked events and tasks appear while Daymark is open.</p>
+    </section>
     {(error || status) && <div className="space-top" role="status"><ErrorText error={error} />{status && <p className="status-text">{status}</p>}</div>}
     <section className="panel inset space-top">
       <SectionTitle title="Connected accounts" action={canEdit ? 'Refresh status' : undefined} onAction={() => refresh().catch(cause => notify(cause.message))} />
+      {workspace.outlook_mail && workspace.connections?.microsoft?.connected && <button className="button secondary" disabled={!canEdit || !!busy}
+        onClick={() => run('outlook mail', async () => setMail(await api('/api/outlook/mail')))}><Mail size={16} /> Outlook inbox reminders</button>}
       <div className="provider-list">{Object.entries(providerDetails).map(([provider, [name, description]]) => {
         const state = workspace.connections?.[provider] || {}
         const status = state.error ? 'Sync issue' : state.connected ? 'Connected' : state.available ? 'Ready to connect' : 'Setup required'
@@ -124,5 +150,14 @@ export function Settings({ workspace, request, canEdit, install, logout, refresh
             setConfirm(null); setStatus('Source data removed.')
           })}>Confirm removal</button></div></div></div>}
     </section>
+    {mail && <Modal title="Outlook inbox reminders" onClose={() => setMail(null)}>
+      <div className="form-body"><p className="small muted">Choose an email header to turn it into a Daymark task.</p>
+        {mail.length ? <div className="line-list search-results">{mail.map(item => <button key={item.id} onClick={() => {
+          setMail(null)
+          create('task', { title: item.subject, notes: [item.sender && `From ${item.sender}`, item.received && `Received ${item.received}`].filter(Boolean).join('\n') })
+        }}><div><strong>{item.subject}</strong><small>{item.sender}</small></div><Tag>Add task</Tag></button>)}</div>
+          : <Empty icon={Mail} title="No messages found" />}
+      </div>
+    </Modal>}
   </>
 }

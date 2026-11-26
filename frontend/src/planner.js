@@ -6,14 +6,14 @@ export const categories = { class: 'Class', exam: 'Exam', study: 'Study block', 
 export const colors = { teal: 'Teal', blue: 'Blue', violet: 'Violet', amber: 'Amber', rose: 'Rose' }
 export const sources = {
   manual: 'Daymark', 'google-calendar': 'Google Calendar', 'google-tasks': 'Google Tasks',
-  outlook: 'Outlook', 'bennett-lms': 'Bennett LMS file', 'bennett-feed': 'Bennett LMS feed', camu: 'MyCamu',
+  outlook: 'Outlook', 'bennett-lms': 'Bennett LMS file', 'bennett-feed': 'Bennett LMS feed', camu: 'MyCamu file', 'camu-feed': 'MyCamu sync file',
   csv: 'CSV import', ics: 'Calendar file', demo: 'Sample data',
 }
 export const defaults = {
   kind: 'event', title: '', notes: '', course: '', category: 'personal', color: 'teal',
   start: null, end: null, due: null, location: '', priority: 'normal', done: false,
   repeat: 'none', repeat_until: null, skip_days: [], completed_days: [],
-  attendance: 'present', minutes: 60, target: 75, busy: true, parent: '',
+  attendance: 'present', minutes: 60, target: 75, busy: true, reminder: null, parent: '',
 }
 
 function zoned(value, zone) {
@@ -125,12 +125,12 @@ function roomKey(room) {
 export function duplicateState(records, dismissed) {
   const slots = new Map()
   for (const row of records) {
-    if (row.kind !== 'event' || !['camu', 'google-calendar'].includes(row.source)) continue
+    if (row.kind !== 'event' || !['camu', 'camu-feed', 'google-calendar'].includes(row.source)) continue
     const title = titleKey(row.title)
     if (!title || row.start.length === 10) continue
     const key = JSON.stringify([row.start, row.end])
     const group = slots.get(key) || { camu: [], google: [] }
-    group[row.source === 'camu' ? 'camu' : 'google'].push(row)
+    group[row.source === 'google-calendar' ? 'google' : 'camu'].push(row)
     slots.set(key, group)
   }
   const matches = new Map()

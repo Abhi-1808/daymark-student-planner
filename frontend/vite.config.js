@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  esbuild: { jsx: "automatic" },
   server: {
     host: 'localhost',
     port: 5173,
     strictPort: true,
-    proxy: { '/api': { target: 'http://localhost:8000' } },
+    proxy: { '/api': { target: 'http://127.0.0.1:8000' } },
   },
 })

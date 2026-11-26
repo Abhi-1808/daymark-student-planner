@@ -50,7 +50,10 @@ function StudyTime({ workspace, today, now, matches, open, confirm, canEdit }) {
     return Number(lateA) - Number(lateB)
   })
   const workDue = candidates.filter(item => item.due && item.due >= day)
-  const workMinutes = workDue.reduce((total, item) => total + item.minutes, 0)
+  const dueTasks = workDue.map(item => ({ ...item, id: item.repeat === 'none' ? item.id : item.key }))
+  const workMinutes = dueTasks.reduce((total, item) => total + item.minutes, 0)
+  const deadlineShortfall = buildPlan(dueTasks, items, day, weekEnd, prefs, now).unfinished
+    .reduce((total, item) => total + item.minutes, 0)
   const earliestSlot = slots[0] ? Math.floor((slots[0].end - slots[0].start) / 60000) : 0
   const fits = candidates.filter(item => item.minutes <= earliestSlot && (!item.due || item.due >= day)).slice(0, 3)
   const clashes = conflicts(items.filter(item => includesDay(item, day)), zone, prefs.buffer, matches.copies)
@@ -65,7 +68,7 @@ function StudyTime({ workspace, today, now, matches, open, confirm, canEdit }) {
       <section className="panel inset"><SectionTitle title="Workload · next 7 days" />
         <div className="workload"><div><strong>{minutesLabel(workMinutes)}</strong><span>Estimated work due</span></div><div><strong>{minutesLabel(weekMinutes)}</strong><span>Free study time</span></div></div>
         <progress aria-label="Weekly workload" value={Math.min(weekMinutes || 1, workMinutes)} max={weekMinutes || 1} />
-        <p className="muted small">{workMinutes > weekMinutes ? 'Estimated work exceeds your free time.' : 'Free time accounts for busy events and your time buffer.'}</p>
+        <p className="muted small">{deadlineShortfall ? `${minutesLabel(deadlineShortfall)} of estimated work does not fit before its due date.` : 'Free time accounts for busy events and your time buffer.'}</p>
         <h3>Fits your next gap</h3>
         {fits.length ? <div className="line-list">{fits.map(item => <button key={item.key} onClick={() => open(item)}><strong>{item.title}</strong><span>{item.minutes} min</span></button>)}</div>
           : <p className="muted small">No estimated tasks fit the next gap.</p>}
@@ -78,7 +81,7 @@ function StudyTime({ workspace, today, now, matches, open, confirm, canEdit }) {
           <span><strong>{item.title}</strong><small>{item.due ? `Due ${dateLabel(item.due)}` : 'No due date'}</small></span><span>{item.minutes}m</span>
         </label>)}</div> : <Empty icon={ListChecks} title="No open work to plan" />}
         <button className="button primary space-top" disabled={!selected.length || !canEdit} onClick={() => setPreview({
-          ...buildPlan(selected.map(item => ({ ...item, id: item.repeat === 'none' ? item.id : item.key })), items, day, day, prefs, now), revision: workspace.revision,
+          ...buildPlan(selected.map(item => ({ ...item, id: item.repeat === 'none' ? item.id : item.key })), items, day, day, prefs, now), revision: workspace.revision, created: Date.now(),
         })}>Preview study plan</button>
       </section>
       <section className="panel inset"><SectionTitle title="Timetable checks" /><p className="muted small">Overlaps and room changes shorter than your {prefs.buffer}-minute buffer.</p>
@@ -160,7 +163,7 @@ function ExamPrep({ workspace, today, now, confirm, canEdit }) {
     const records = expand(workspace.records, addDays(today, -1), date, prefs.timezone)
     const tasks = topics.map(topic => ({ ...topic, id: undefined, title: topic.title.trim(), due: until, priority: 'normal', course: exam?.course || '' }))
     if (tasks.some(topic => !topic.title)) return setError('Enter a name for each topic.')
-    setPreview({ ...buildPlan(tasks, records, today, until, prefs, now, true), revision: workspace.revision })
+    setPreview({ ...buildPlan(tasks, records, today, until, prefs, now, true), revision: workspace.revision, created: Date.now() })
   }
   return <section className="panel inset exam-panel"><SectionTitle title="Create a revision plan" />
     <p className="small muted">List the topics you need to cover. Daymark spreads revision across open slots before the exam.</p>

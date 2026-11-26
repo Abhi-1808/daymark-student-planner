@@ -4,6 +4,7 @@ import {
   CloudOff, Command, CopyCheck, Menu, Plus, Search, Settings2, Sunrise, X, Zap,
 } from 'lucide-react'
 import { api, clearCache, readCache, writeCache } from './api.js'
+import { remind } from './device.js'
 import { CalendarView } from './calendar.jsx'
 import { makeDraft, RecordEditor } from './editor.jsx'
 import { addDays, categories, conflicts, dateLabel, dayOf, duplicateState, expand, inputRecord, quickAdd, sources } from './planner.js'
@@ -154,7 +155,7 @@ export function App() {
     try {
       const data = await api('/api/workspace')
       if (id !== reqId.current) return
-      const changed = visible.current?.revision !== data.revision ||
+      const changed = visible.current?.revision !== data.revision || visible.current?.outlook_mail !== data.outlook_mail ||
         JSON.stringify(visible.current?.connections) !== JSON.stringify(data.connections)
       if (changed || !cacheDate.current || Date.now() - cacheDate.current > 60000) {
         cacheDate.current = Date.now()
@@ -224,6 +225,10 @@ export function App() {
       document.removeEventListener('visibilitychange', foreground)
     }
   }, [notify, refresh])
+
+  useEffect(() => {
+    if (workspace && !offline) void remind(records, zone, now)
+  }, [workspace, offline, records, zone, now])
 
   useEffect(() => { try { localStorage.setItem('daymark-calendar-filters', JSON.stringify(filters)) } catch { /* storage is optional */ } }, [filters])
   useEffect(() => {
@@ -339,7 +344,7 @@ export function App() {
           <selected.icon size={17} /><span>{selected.label}</span></div>
         <div className="topbar-actions">
           {count > 0 && <button className="button review-button" onClick={() => setDialog({ type: 'duplicates' })}><CopyCheck size={16} /> <span>Review</span> {count}</button>}
-          <button className="search-button" onClick={() => setDialog({ type: 'search' })}><Search size={17} /><span>Search anything</span><kbd><Command size={11} /> K</kbd></button>
+          <button className="search-button" aria-label="Search anything" onClick={() => setDialog({ type: 'search' })}><Search size={17} /><span>Search anything</span><kbd><Command size={11} /> K</kbd></button>
           <IconButton className="help-button" icon={CircleHelp} label="Workspace help" onClick={() => setDialog({ type: 'help' })} />
         </div>
       </header>
@@ -351,10 +356,10 @@ export function App() {
           prefs={workspace.preferences} hidden={filters} setHidden={setFilters} />}
         {page === 'tasks' && <Tasks {...common} records={records} zone={zone} />}
         {page === 'study' && <Study {...common} workspace={workspace} courses={courses} matches={matches} confirm={async preview => {
-          const result = await request('/api/plan', { method: 'POST', payload: { revision: preview.revision, blocks: preview.blocks } })
+          const result = await request('/api/plan', { method: 'POST', payload: { revision: preview.revision, created: preview.created, blocks: preview.blocks } })
           notify(`${result.count} study blocks added.`, true)
         }} />}
-        {page === 'settings' && <Settings workspace={workspace} request={request} canEdit={canEdit} logout={logout} refresh={refresh} notify={notify}
+        {page === 'settings' && <Settings workspace={workspace} request={request} create={create} canEdit={canEdit} logout={logout} refresh={refresh} notify={notify}
           install={installPrompt && (async () => { await installPrompt.prompt(); setInstallPrompt(null) })} />}
       </main>
     </div>

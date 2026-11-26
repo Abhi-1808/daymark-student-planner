@@ -1,7 +1,11 @@
 import { createRoot } from 'react-dom/client'
 import { App } from './app.jsx'
+import { applyTheme, setting } from './device.js'
+import '@fontsource/carlito/latin-400.css'
+import '@fontsource/carlito/latin-700.css'
 import './styles.css'
 
+applyTheme(setting('daymark-theme', 'system'))
 createRoot(document.getElementById('root')).render(<App />)
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))

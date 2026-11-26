@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Children, cloneElement, useEffect, useId, useRef, useState } from 'react'
 import { AlertCircle, CalendarDays, Check, ChevronRight, Clock3, Flag, MapPin, X } from 'lucide-react'
 import { categories, dateLabel, dayOf, sources, timeLabel } from './planner.js'
 
@@ -32,7 +32,9 @@ export function Modal({ title, children, onClose, className = '' }) {
   </dialog>
 }
 export function Field({ label, children, className = '' }) {
-  return <label className={`field ${className}`}><span>{label}</span>{children}</label>
+  const id = useId()
+  const [control, ...extra] = Children.toArray(children)
+  return <div className={`field ${className}`}><label htmlFor={id}>{label}</label>{cloneElement(control, { id })}{extra}</div>
 }
 export function Tag({ children, color = 'teal' }) {
   return <span className={`tag ${color}`}>{children}</span>
@@ -41,12 +43,13 @@ export function Tag({ children, color = 'teal' }) {
 export function EventRow({ item, zone, onClick, withDate = false }) {
   const when = item.allDay || item.start?.length === 10 ? 'All day' : item.start ? timeLabel(item.start, zone) : ''
   const classification = item.course || categories[item.category]
-  return <button className="event-row" onClick={onClick}>
+  const Element = onClick ? "button" : "div"
+  return <Element className="event-row" onClick={onClick}>
     <span className="event-time">{withDate && <strong>{dateLabel(dayOf(item.start, zone))}</strong>}{when}</span>
     <span className={`event-line ${item.color}`} />
     <span className="event-description"><strong>{item.title}</strong><span>{classification}{item.location && <><span className="dot-separator" /><MapPin size={12} />{item.location}</>}</span></span>
-    <ChevronRight className="row-chevron" size={16} />
-  </button>
+    {onClick && <ChevronRight className="row-chevron" size={16} />}
+  </Element>
 }
 export function TaskRow({ item, onOpen, onToggle, today, compact = false }) {
   const outstanding = !item.done

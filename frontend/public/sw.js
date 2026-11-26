@@ -10,6 +10,11 @@ self.addEventListener('install', event => {
     const cache = await caches.open(CACHE)
     await cache.put('/', response)
     await cache.addAll([...STATIC.slice(1), ...new Set(assets)])
+    for (const asset of assets.filter(path => path.endsWith('.css'))) {
+      const css = await (await cache.match(asset)).text()
+      const fonts = [...css.matchAll(/url\(["']?(\/assets\/[^)"']+\.woff2?)["']?\)/g)].map(match => match[1])
+      if (fonts.length) await cache.addAll([...new Set(fonts)])
+    }
     await self.skipWaiting()
   })())
 })
@@ -38,5 +43,14 @@ self.addEventListener('fetch', event => {
       }
     }
     return (await cache.match(request)) || fetch(request)
+  })())
+})
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close()
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    if (windows.length) await windows[0].focus()
+    else await self.clients.openWindow('/')
   })())
 })

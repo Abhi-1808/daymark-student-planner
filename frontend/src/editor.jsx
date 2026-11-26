@@ -50,6 +50,10 @@ export function RecordEditor({ record, courses, zone, close, save, remove, skip,
         body.start = data.allDay ? data.start : new Date(instant(data.start, zone)).toISOString()
         body.end = data.allDay ? addDays(data.end, 1) : new Date(instant(data.end, zone)).toISOString()
       }
+      if (body.repeat_until && body.repeat_until < (body.kind === 'event' ? data.start.slice(0, 10) : body.due || '')) {
+        throw new Error('The repeat end date must be on or after the first occurrence.')
+      }
+      if (body.kind === 'task' && !body.due && body.reminder !== null) throw new Error('Set a due date for the reminder.')
       if (data.kind === 'course' && !body.course) throw new Error('Enter a subject code.')
       const id = mode === 'copy' ? undefined : record.id
       if (!warnings.length) {
@@ -144,6 +148,11 @@ export function RecordEditor({ record, courses, zone, close, save, remove, skip,
           <Field label="Repeat"><select {...prop('repeat')}><option value="none">Never</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></Field>
           {data.repeat !== 'none' && <Field label="Repeat until"><input type="date" {...prop('repeat_until')} /></Field>}
         </div>}
+        {['event', 'task'].includes(data.kind) && <Field label={data.kind === 'task' || data.allDay ? 'Reminder (from 09:00 on the date)' : 'Reminder (before start)'}>
+          <select value={data.reminder ?? ''} onChange={event => update('reminder', event.target.value === '' ? null : Number(event.target.value))}>
+            <option value="">None</option><option value="0">At the time</option><option value="10">10 minutes before</option>
+            <option value="30">30 minutes before</option><option value="60">1 hour before</option><option value="1440">1 day before</option>
+          </select></Field>}
         {['event', 'course'].includes(data.kind) && <Field label="Color"><select {...prop('color')}>{Object.entries(colors).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>}
         <Field label={data.kind === 'course' ? 'Notes and useful links' : 'Notes'}><textarea rows="3" maxLength={10000} {...prop('notes')} placeholder="Optional" /></Field>
         {!!warnings.length && <div className="warning-panel"><div><strong>Check these timetable conflicts</strong>

@@ -1,5 +1,5 @@
 :root {
-  font-family: "Inter", "Aptos", "Segoe UI", system-ui, sans-serif;
+  font-family: Calibri, Carlito, "Segoe UI", system-ui, sans-serif;
   color: #192b29; background: #f6f8f5; font-synthesis: none; text-rendering: optimizeLegibility;
   --ink: #192b29; --muted: #596b66; --subtle: #788881; --line: #e1e8e1; --white: #fff;
   --accent: #176851; --accent-strong: #125642; --mint: #bbedaa;
@@ -252,7 +252,7 @@ progress { width: 100%; accent-color: var(--accent); }
 .provider-description strong { font-size: 13px; }
 .provider-description span { color: var(--muted); font-size: 11px; }
 .field { display: grid; gap: 5px; min-width: 0; }
-.field > span { font-weight: 680; font-size: 12px; }
+.field > :is(label, span) { font-weight: 680; font-size: 12px; }
 input:not([type=checkbox]), select, textarea { min-width: 0; width: 100%; min-height: 37px; border: 1px solid #d8e4da; border-radius: 7px; color: var(--ink); background: #fff; padding: 7px 9px; font-size: 13px; }
 input:not([type=checkbox]):focus, select:focus, textarea:focus { outline: 2px solid #8bc1a8; outline-offset: 1px; }
 input[type=file] { max-width: 100%; }
@@ -354,4 +354,74 @@ textarea { resize: vertical; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0s !important; }
+}
+
+.device-settings { max-width: 520px; }
+
+:root[data-theme=dark] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) { color-scheme: dark; }
+}
+:root {
+  --canvas: #f6f8f5; --quiet-surface: #f8faf7; --hover-surface: #edf5eb;
+  --input-border: #d8e4da; --accent-fill: #176851; --action-hover: #125642;
+  --quiet-green: #e7f1e4; --green-edge: #d8e7d6;
+}
+:root[data-theme=dark] {
+  --canvas: #15211f; --white: #1b2b28; --ink: #e5eee8; --muted: #aac0b6; --subtle: #8da69b;
+  --line: #344941; --accent: #a7ddbc; --accent-fill: #26634e; --action-hover: #32775f;
+  --quiet-surface: #1d302b; --hover-surface: #283e34; --input-border: #486057;
+  --quiet-green: #243d31; --green-edge: #38584a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) {
+    --canvas: #15211f; --white: #1b2b28; --ink: #e5eee8; --muted: #aac0b6; --subtle: #8da69b;
+    --line: #344941; --accent: #a7ddbc; --accent-fill: #26634e; --action-hover: #32775f;
+    --quiet-surface: #1d302b; --hover-surface: #283e34; --input-border: #486057;
+    --quiet-green: #243d31; --green-edge: #38584a;
+  }
+}
+:root { background: var(--canvas); color: var(--ink); }
+.topbar, .search-button kbd, .icon-button, .button.secondary, .review-button, .metric, .event-row,
+.upcoming-item, .line-list > *, .dialog, .dialog-head, input:not([type=checkbox]), select, textarea,
+.check-button, .segment button.active, .create-menu { background: var(--white); }
+.search-button, .week-strip button, .weekday, .month-cell.outside, .time-grid-zone, .all-day-label,
+.timeline-day, .timeline-labels, .calendar-filters, .slot-list > div, .workload div, .subject-detail { background: var(--quiet-surface); }
+.search-button:hover, .button.secondary:hover:not(:disabled), .review-button:hover, .icon-button:hover:not(:disabled),
+.create-menu button:hover, .event-row:hover, .upcoming-item:hover, .timeline-day:hover,
+.line-list > button:hover, .date-cell:hover, .is-selected .date-cell { background: var(--hover-surface); }
+.icon-button, .icon-button:hover:not(:disabled), .button.secondary, .review-button, .search-button kbd,
+.record-detail p, .check-label, .plan-prompt p { color: var(--muted); }
+.button.secondary, .review-button, .week-strip button, .event-row, .task-row, .segment,
+input:not([type=checkbox]), select, textarea, .search-input, .check-button { border-color: var(--input-border); }
+.event-row, .task-row, .week-strip button, .segment { border-color: var(--line); }
+.button.primary, .week-strip button.current, .check-button[aria-pressed=true], .is-today .date-cell {
+  background: var(--accent-fill); border-color: var(--accent-fill); color: #fff;
+}
+.button.primary:hover:not(:disabled) { background: var(--action-hover); }
+.onboard, .plan-prompt, .empty-icon, .welcome-screen, .timeline-day.is-today, .onboard-icon, .plan-icon {
+  background: var(--quiet-green); border-color: var(--green-edge);
+}
+.segment { background: var(--quiet-surface); }
+.time-track { background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour) - 1px), var(--line) calc(var(--hour) - 1px) var(--hour)); }
+.time-slot:hover { background: var(--quiet-green); opacity: .5; }
+:root[data-theme=dark] .teal { --tint: #24453a; --tone: #b9e5cd; --stripe: #65b092; }
+:root[data-theme=dark] .violet { --tint: #373049; --tone: #ddd0f4; --stripe: #ad90d4; }
+:root[data-theme=dark] .blue { --tint: #293c50; --tone: #c2dbf5; --stripe: #79a5d4; }
+:root[data-theme=dark] .amber { --tint: #473722; --tone: #f5d4a0; --stripe: #dfae5e; }
+:root[data-theme=dark] .rose { --tint: #47323b; --tone: #f0bbca; --stripe: #da869e; }
+:root[data-theme=dark] :is(.late, .danger-text) { color: #ffb3c4; }
+:root[data-theme=dark] :is(.offline-banner, .warning-panel, .conflict-list > div) { background: #49391f; color: #f5d4a0; border-color: #725735; }
+:root[data-theme=dark] .error-msg { background: #47323b; color: #f0bbca; }
+:root[data-theme=dark] .status-text { background: #24453a; color: #b9e5cd; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme=light]) .teal { --tint: #24453a; --tone: #b9e5cd; --stripe: #65b092; }
+  :root:not([data-theme=light]) .violet { --tint: #373049; --tone: #ddd0f4; --stripe: #ad90d4; }
+  :root:not([data-theme=light]) .blue { --tint: #293c50; --tone: #c2dbf5; --stripe: #79a5d4; }
+  :root:not([data-theme=light]) .amber { --tint: #473722; --tone: #f5d4a0; --stripe: #dfae5e; }
+  :root:not([data-theme=light]) .rose { --tint: #47323b; --tone: #f0bbca; --stripe: #da869e; }
+  :root:not([data-theme=light]) :is(.late, .danger-text) { color: #ffb3c4; }
+  :root:not([data-theme=light]) :is(.offline-banner, .warning-panel, .conflict-list > div) { background: #49391f; color: #f5d4a0; border-color: #725735; }
+  :root:not([data-theme=light]) .error-msg { background: #47323b; color: #f0bbca; }
+  :root:not([data-theme=light]) .status-text { background: #24453a; color: #b9e5cd; }
 }
